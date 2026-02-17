@@ -42,14 +42,15 @@ func main() {
 		if len(args) < 1 {
 			exitErr(errors.New(`missing description: task-cli add "Buy groceries"`))
 		}
-		id, err := createTask(args[0])
+		desc := strings.Join(args, " ")
+		id, err := createTask(desc)
 		if err != nil {
 			exitErr(err)
 		}
 		fmt.Printf("Task added successfully (ID: %d)\n", id)
 	case "update":
 		if len(args) < 2 {
-			exitErr(errors.New(`missing description or id: task-cli update <id> "new description"`))
+			exitErr(errors.New(`usage: task-cli update <id> "new description"`))
 		}
 
 		id, err := strconv.Atoi(args[0])
@@ -65,7 +66,7 @@ func main() {
 		fmt.Printf("Task updated successfully (ID: %d)\n", id)
 	case "mark-in-progress":
 		if len(args) != 1 {
-			exitErr(errors.New(`missing id:: task-cli mark-in-progress <id>`))
+			exitErr(errors.New(`usage: task-cli mark-in-progress <id>`))
 		}
 
 		id, err := strconv.Atoi(args[0])
@@ -79,7 +80,7 @@ func main() {
 		fmt.Printf("Task marked in-progress successfully (ID: %d)\n", id)
 	case "mark-done":
 		if len(args) != 1 {
-			exitErr(errors.New(`missing id: task-cli mark-done <id>`))
+			exitErr(errors.New(`usage: task-cli mark-done <id>`))
 		}
 
 		id, err := strconv.Atoi(args[0])
@@ -91,11 +92,37 @@ func main() {
 			exitErr(err)
 		}
 		fmt.Printf("Task marked done successfully (ID: %d)\n", id)
-	// TODO: update <id> <description>
-	// TODO: delete <id>
-	// TODO: mark-in-progress <id>
-	// TODO: mark-done <id>
-	// TODO: list [todo|in-progress|done]
+	case "list":
+		if len(args) == 0 {
+			err := listTasks(nil)
+			if err != nil {
+				exitErr(err)
+			}
+		} else if len(args) == 1 {
+			filter, err := parseStatus(args[0])
+			if err != nil {
+				exitErr(err)
+			}
+			err = listTasks(&filter)
+			if err != nil {
+				exitErr(err)
+			}
+		} else {
+			exitErr(errors.New(`usage: task-cli list [todo|in-progress|done]`))
+		}
+	case "delete":
+		if len(args) != 1 {
+			exitErr(errors.New(`usage: task-cli delete <id>`))
+		}
+		id, err := strconv.Atoi(args[0])
+		if err != nil {
+			exitErr(fmt.Errorf("invalid id %q: must be an integer", args[0]))
+		}
+		err = deleteTask(id)
+		if err != nil {
+			exitErr(err)
+		}
+		fmt.Printf("Task deleted successfully (ID: %d)\n", id)
 	default:
 		printUsage()
 		os.Exit(1)
@@ -103,6 +130,7 @@ func main() {
 }
 
 func createTask(desc string) (int, error) {
+	desc = strings.TrimSpace(desc)
 	if desc == "" {
 		return 0, errors.New("description cannot be empty")
 	}
@@ -136,11 +164,10 @@ func createTask(desc string) (int, error) {
 }
 
 func updateTask(id int, desc string) error {
-	found := false
 	if id <= 0 {
 		return errors.New("id must be > 0")
 	}
-
+	desc = strings.TrimSpace(desc)
 	if desc == "" {
 		return errors.New("description cannot be empty")
 	}
@@ -155,60 +182,18 @@ func updateTask(id int, desc string) error {
 		if tasks[i].ID == id {
 			tasks[i].Description = desc
 			tasks[i].UpdatedAt = now
-			found = true
-			break
+			return saveTasks(tasks)
 		}
 	}
-
-	if !found {
-		return fmt.Errorf("task %d not found", id)
-	}
-
-	return saveTasks(tasks)
+	return fmt.Errorf("task %d not found", id)
 }
 
 func markInProgress(id int) error {
-	if id <= 0 {
-		return errors.New("id must be > 0")
-	}
-
-	tasks, err := loadTasks()
-	if err != nil {
-		return err
-	}
-
-	now := time.Now().UTC()
-	for i := range tasks {
-		if tasks[i].ID == id {
-			tasks[i].Status = StatusInProgress
-			tasks[i].UpdatedAt = now
-			return saveTasks(tasks)
-		}
-	}
-
-	return fmt.Errorf("task %d not found", id)
+	return setStatus(id, StatusInProgress)
 }
 
 func markDone(id int) error {
-	if id <= 0 {
-		return errors.New("id must be > 0")
-	}
-
-	tasks, err := loadTasks()
-	if err != nil {
-		return err
-	}
-
-	now := time.Now().UTC()
-	for i := range tasks {
-		if tasks[i].ID == id {
-			tasks[i].Status = StatusDone
-			tasks[i].UpdatedAt = now
-			return saveTasks(tasks)
-		}
-	}
-
-	return fmt.Errorf("task %d not found", id)
+	return setStatus(id, StatusDone)
 }
 
 func loadTasks() ([]Task, error) {
@@ -236,6 +221,84 @@ func saveTasks(tasks []Task) error {
 		return err
 	}
 	return os.WriteFile(tasksFile, b, 0644)
+}
+
+func listTasks(filter *Status) error {
+	tasks, err := loadTasks()
+	if err != nil {
+		return err
+	}
+
+	printed := false
+
+	for _, t := range tasks {
+		if filter == nil || t.Status == *filter {
+			fmt.Printf("#%d [%s] %s\n", t.ID, t.Status, t.Description)
+			printed = true
+		}
+	}
+
+	if !printed {
+		fmt.Println("No tasks found.")
+	}
+
+	return nil
+}
+
+func deleteTask(id int) error {
+	if id <= 0 {
+		return errors.New("id must be > 0")
+	}
+
+	tasks, err := loadTasks()
+	if err != nil {
+		return err
+	}
+
+	for i, t := range tasks {
+		if t.ID == id {
+			tasks = append(tasks[:i], tasks[i+1:]...)
+
+			return saveTasks(tasks)
+		}
+	}
+
+	return fmt.Errorf("task %d not found", id)
+}
+
+func setStatus(id int, s Status) error {
+	if id <= 0 {
+		return errors.New("id must be > 0")
+	}
+
+	tasks, err := loadTasks()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	for i := range tasks {
+		if tasks[i].ID == id {
+			tasks[i].Status = s
+			tasks[i].UpdatedAt = now
+			return saveTasks(tasks)
+		}
+	}
+
+	return fmt.Errorf("task %d not found", id)
+}
+
+func parseStatus(s string) (Status, error) {
+	switch s {
+	case "todo":
+		return StatusTodo, nil
+	case "in-progress":
+		return StatusInProgress, nil
+	case "done":
+		return StatusDone, nil
+	default:
+		return "", fmt.Errorf("invalid status %q: must be todo|in-progress|done", s)
+	}
 }
 
 func printUsage() {
