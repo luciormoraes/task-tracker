@@ -17,5 +17,5 @@
 ```bash
 go build -o task-cli
 ```
+https://roadmap.sh/projects/task-tracker
 
-[Project URL](ttps://roadmap.sh/projects/task-tracker) 
