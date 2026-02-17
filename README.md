@@ -18,4 +18,4 @@
 go build -o task-cli
 ```
 
-[Project URL](https://github.com/luciormoraes/task-tracker) 
+[Project URL](ttps://roadmap.sh/projects/task-tracker) 
